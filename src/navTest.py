@@ -160,14 +160,12 @@ def move(vx,vy,vth,dt):
 	
 	limit = 1*math.pi/180
 	limit_dist = 1e-3
-	#print(rospy.Time.now().to_sec(), dt)
-	# idle
+	
 	delta_th = vth*dt
 	delta_x = vx*dt
 	delta_y = vy*dt
 	dist = math.sqrt(delta_x*delta_x + delta_y*delta_y) #target
-	#print("target {0:}\t{1:}\t{2:}\t{3:}\n".format(delta_x,delta_y, delta_th,dt))
-		
+	
 	# real move
 	dist_now =0
 	t_p = initDt()
@@ -180,9 +178,6 @@ def move(vx,vy,vth,dt):
 	#roatate
 	if vth!=0.0:
 	    
-	    #target %= (2*math.pi)
-	    #print("vth op: {0:}\t{1:}\t{2:}\t{3:}\n".format(delta_th,th,target,dt))
-	    
 	    if target < th: command = 'd'
 	    else: command='a'
 	    
@@ -193,7 +188,6 @@ def move(vx,vy,vth,dt):
 		    now_th,t_p = getAngle(sensor,BGZ, t_p, fil_angle)
 		    th = (-1)*now_th*math.pi/180
 		    
-		    #print(delta_th,th,target, command) #th --> now, angle(th)
 		    time.sleep(0.005)
 	    else:
 		t_p = initDt()
@@ -205,6 +199,7 @@ def move(vx,vy,vth,dt):
 		    time.sleep(0.005)
 	    command = 'x'
 	    ser.write(command.encode())
+		
 	# go straight
 	if dist>limit_dist:
 	    #dist += dist_now
@@ -220,7 +215,6 @@ def move(vx,vy,vth,dt):
 	
 	print("message complete: target-{0:}\t{1:}\tcur-{2:}\t{3:}\n".format(dist, target, dist_now, th))
 	
-	#last_time_sub = rospy.Time().now()
 	isnav = 0
 
 def sendOdom():
@@ -261,13 +255,7 @@ def sendOdom():
 	
 	th = (-1)*now_th*math.pi/180
 	delta_th = th-prev_th
-	#delta_th = th	#-prev_th
-	
-	'''
-	avg_cnt = (cnt_r+cnt_l-2)/2.
-	delta_dist = (avg_cnt-prev_cnt)/40.*wheel
-	prev_cnt=avg_cnt
-	'''
+
 	# get delta_dist
 	if command=='w' or command=='s':
 	    avg_cnt = (cnt_r+cnt_l-2)/2.
