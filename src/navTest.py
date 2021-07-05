@@ -164,18 +164,17 @@ def move(vx,vy,vth,dt):
 	delta_th = vth*dt
 	delta_x = vx*dt
 	delta_y = vy*dt
-	dist = math.sqrt(delta_x*delta_x + delta_y*delta_y) #target
 	
-	# real move
 	dist_now =0
 	t_p = initDt()
-	
 	now_th, t_p = getAngle(sensor,BGZ, t_p, fil_angle)
 	th = (-1)*now_th*math.pi/180
 	
+	# target dist, th
+	dist = math.sqrt(delta_x*delta_x + delta_y*delta_y) #target
 	target = delta_th+th
 	
-	#roatate
+	#roatate for target(th)
 	if vth!=0.0:
 	    
 	    if target < th: command = 'd'
@@ -187,7 +186,6 @@ def move(vx,vy,vth,dt):
 		while th-target>limit:
 		    now_th,t_p = getAngle(sensor,BGZ, t_p, fil_angle)
 		    th = (-1)*now_th*math.pi/180
-		    
 		    time.sleep(0.005)
 	    else:
 		t_p = initDt()
@@ -195,14 +193,12 @@ def move(vx,vy,vth,dt):
 		while target-th>limit:
 		    now_th,t_p = getAngle(sensor,BGZ, t_p, fil_angle)
 		    th = (-1)*now_th*math.pi/180
-		    #print(delta_th,th,target, command)
 		    time.sleep(0.005)
 	    command = 'x'
 	    ser.write(command.encode())
 		
-	# go straight
+	# go straight for target dist
 	if dist>limit_dist:
-	    #dist += dist_now
 	    command = 'w'
 	    ser.write(command.encode())
 	    while dist_now < dist:
@@ -214,7 +210,6 @@ def move(vx,vy,vth,dt):
 	    ser.write(command.encode())
 	
 	print("message complete: target-{0:}\t{1:}\tcur-{2:}\t{3:}\n".format(dist, target, dist_now, th))
-	
 	isnav = 0
 
 def sendOdom():
