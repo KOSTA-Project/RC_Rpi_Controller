@@ -145,8 +145,6 @@ def subscribe_cmd_vel(data):
     dt = (current_time_sub - last_time_sub).to_sec()
     last_time_sub = -1
     
-    # vx,vy,vth original position
-    
     move(vx_sub,vy_sub,vth_sub,dt)
 
 def move(vx,vy,vth,dt):
@@ -162,13 +160,12 @@ def move(vx,vy,vth,dt):
 	
 	limit = 1*math.pi/180
 	limit_dist = 1e-3
-	print(rospy.Time.now().to_sec(), dt)
+	#print(rospy.Time.now().to_sec(), dt)
 	# idle
 	delta_th = vth*dt
 	delta_x = vx*dt
 	delta_y = vy*dt
 	dist = math.sqrt(delta_x*delta_x + delta_y*delta_y) #target
-	
 	#print("target {0:}\t{1:}\t{2:}\t{3:}\n".format(delta_x,delta_y, delta_th,dt))
 		
 	# real move
