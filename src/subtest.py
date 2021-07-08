@@ -55,32 +55,6 @@ def getAngle(sensor, bgz, t_prev, fil_angle):
     
     return fil_angle.z,t_now
 
-# for move dist calc
-command = ''
-cnt_r =0 ; cnt_l=0
-prev_r=-1; prev_l=-1
-
-### for motor op
-port = "/dev/ttyACM0"
-ser = serial.Serial(port, 9600)
-# encoder 
-LEFT = 7
-RIGHT = 22
-wheel=21.2/100.  # meter
-
-GPIO.setmode(GPIO.BOARD)
-GPIO.setup(LEFT, GPIO.IN)
-GPIO.setup(RIGHT, GPIO.IN)
-
-sensor = mpu6050(0x68)
-bus = smbus.SMBus(1)
-Device_Address = 0x68
-
-BGZ = calibAccelGyro(sensor)
-fil_angle = Fil_angle()
-
-cur_th = 0.0
-
 # read encoder
 def distanceThread():
     global cnt_r
@@ -101,26 +75,48 @@ def distanceThread():
                 prev_l=ll
         time.sleep(0.003)
 
+### for motor op
+port = "/dev/ttyACM0"
+ser = serial.Serial(port, 115200)
+
+# for move dist calc
+command = ''
+cnt_r =0 ; cnt_l=0
+prev_r=-1; prev_l=-1
+
+# encoder setup
+LEFT = 7
+RIGHT = 22
+wheel=21.2/100.  # meter
+
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup(LEFT, GPIO.IN)
+GPIO.setup(RIGHT, GPIO.IN)
+
+# mpu setup
+sensor = mpu6050(0x68)
+bus = smbus.SMBus(1)
+Device_Address = 0x68
+
+BGZ = calibAccelGyro(sensor)
+fil_angle = Fil_angle()
+
+cur_th = 0.0
+
+# last odom info
+total_dist=0
+total_th=0
 
 # start - variables init
 rospy.init_node('nav_node')
 
+# msg about move for path planning
 last_time_sub = -1
-
 isnav = 0
 init=0
-# msg about move for path planning
-
 vx_sub=0
 vy_sub=0
 vth_sub=0
-
-x = 0.0
-y = 0.0
-th = 0.0
-prev_th =0
-prev_cnt =0.0
-last_time=rospy.Time.now()
 
 def subscribe_cmd_vel(data):
     global init
@@ -153,9 +149,9 @@ def subscribe_cmd_vel(data):
     
     # vx,vy,vth original position
     
-    move(vx_sub,vy_sub,vth_sub,dt, current_time_sub)
+    move(vx_sub,vy_sub,vth_sub,dt)
 
-def move(vx,vy,vth,dt, current_time):
+def move(vx,vy,vth,dt):
 	
 	global command
 	global ser
@@ -165,14 +161,6 @@ def move(vx,vy,vth,dt, current_time):
 	global BGZ
 	global fil_angle
 	global isnav
-	global x
-	global y
-	global th
-	global prev_th
-	global prev_cnt
-	global odom_pub
-	global odom_broadcaster
-	global last_time
 	
 	limit = 1*math.pi/180
 	limit_dist = 1e-3
@@ -190,10 +178,9 @@ def move(vx,vy,vth,dt, current_time):
 	t_p = initDt()
 	
 	now_th, t_p = getAngle(sensor,BGZ, t_p, fil_angle)
-	th_now = (-1)*now_th*math.pi/180
-	#prev_ttth=th
-	target = delta_th+th_now
-	avg_cnt=0
+	th = (-1)*now_th*math.pi/180
+	
+	target = delta_th+th
 	
 	#roatate
 	if vth!=0.0:
@@ -201,24 +188,24 @@ def move(vx,vy,vth,dt, current_time):
 	    #target %= (2*math.pi)
 	    #print("vth op: {0:}\t{1:}\t{2:}\t{3:}\n".format(delta_th,th,target,dt))
 	    
-	    if target < th_now: command = 'd'
+	    if target < th: command = 'd'
 	    else: command='a'
 	    
-	    if th_now-target > 0:
+	    if th-target > 0:
 		t_p = initDt()
 		ser.write(command.encode())
 		while th-target>limit:
 		    now_th,t_p = getAngle(sensor,BGZ, t_p, fil_angle)
-		    th_now = (-1)*now_th*math.pi/180
+		    th = (-1)*now_th*math.pi/180
 		    
 		    #print(delta_th,th,target, command) #th --> now, angle(th)
 		    time.sleep(0.005)
 	    else:
 		t_p = initDt()
 		ser.write(command.encode())
-		while target-th_now>limit:
+		while target-th>limit:
 		    now_th,t_p = getAngle(sensor,BGZ, t_p, fil_angle)
-		    th_now = (-1)*now_th*math.pi/180
+		    th = (-1)*now_th*math.pi/180
 		    #print(delta_th,th,target, command)
 		    time.sleep(0.005)
 	    command = 'x'
@@ -236,53 +223,10 @@ def move(vx,vy,vth,dt, current_time):
 	    command = 'x'
 	    ser.write(command.encode())
 	
-	# send odom - ddist, ddth
-	if avg_cnt==0: ddist=0
-	else: ddist=(avg_cnt-prev_cnt)/40.*wheel
-	dth = th_now-prev_th
-	
-	dx = ddist*math.cos(th_now)
-	dy = ddist*math.sin(th_now)
-	dt = (rospy.Time.now()-last_time).to_sec()
-	
-	x += dx
-	y += dy
-	vx = dx/dt
-	vy = dy/dt
-	vth=dth/dt
-    
-	# since all odometry is 6DOF we'll need a quaternion created from yaw
-	odom_quat = tf.transformations.quaternion_from_euler(0, 0, th_now)
-
-    # first, we'll publish the transform over tf
-	odom_broadcaster.sendTransform(
-		(x, y, 0.),
-		odom_quat,
-		current_time,
-		"base_link",
-		"odom"
-	)
-    
-	# next, we'll publish the odometry message over ROS
-	odom = Odometry()
-	odom.header.stamp = current_time
-	odom.header.frame_id = "odom"
-
-    # set the position
-	odom.pose.pose = Pose(Point(x, y, 0.), Quaternion(*odom_quat))
-
-    # set the velocity
-	odom.child_frame_id = "base_link"
-	odom.twist.twist = Twist(Vector3(vx, vy, 0), Vector3(0, 0, vth))
-    
-    # publish the message
-	odom_pub.publish(odom)
 	print("message complete: target-{0:}\t{1:}\tcur-{2:}\t{3:}\n".format(dist, target, dist_now, th))
 	
 	#last_time_sub = rospy.Time().now()
 	isnav = 0
-odom_pub = rospy.Publisher("odom", Odometry, queue_size=50)
-odom_broadcaster = tf.TransformBroadcaster()
 
 def sendOdom():
     global fil_angle
@@ -293,24 +237,24 @@ def sendOdom():
     global cnt_l
     global prev_r
     global prev_l
-    global odom_pub
-    global odom_broadcaster
-    global x
-    global y
-    global th
-    global prev_th
-    global prev_cnt
+    
+    x = 0.0
+    y = 0.0
+    th = 0.0
 
     vx = 0.0
     vy = 0.0
     vth = 0.0
+    odom_pub = rospy.Publisher("odom", Odometry, queue_size=50)
+    odom_broadcaster = tf.TransformBroadcaster()
     
     current_time = rospy.Time.now()
     last_time = rospy.Time.now()
-    
+    prev_th =0
+    prev_cnt =0.0
 
     # dt, th, delta_dist
-    r = rospy.Rate(200)
+    r = rospy.Rate(80)
     t_p = initDt()
     while not rospy.is_shutdown() :
 	#print("odom while")
@@ -385,6 +329,8 @@ def sendOdom():
 	prev_th = th
 	
 	r.sleep()
+
+
 
 # Run Thread
 distThread = threading.Thread(target=distanceThread)

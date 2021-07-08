@@ -1,24 +1,22 @@
 #!/usr/bin/env python
-import socket
-
-import math
-from math import sin, cos, pi
-
 import rospy
 import tf
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Point, Pose, Quaternion, Twist, Vector3, Polygon
 
 import RPi.GPIO as GPIO
-from time import sleep
+from mpu6050 import mpu6050
+import smbus
 
+import socket
+from time import sleep
+import time
 import threading
 import sys
 import serial
 
-import time
-from mpu6050 import mpu6050
-import smbus
+import math
+from math import sin, cos, pi
 
 class Fil_angle:
     def __init__(self):
@@ -26,6 +24,7 @@ class Fil_angle:
         self.y=0
         self.z=0
 
+# for sensor calibration - get base value
 def calibAccelGyro(sensor):
     sumGz = 0
     for _ in range(10):
@@ -35,7 +34,6 @@ def calibAccelGyro(sensor):
     baseGz = sumGz / 10
     
     return baseGz
-
 
 def initDt():
     t_= int(time.time()*1000.0)
@@ -52,23 +50,14 @@ def getAngle(sensor, bgz, dt, fil_angle):
 
     return fil_angle.z
 
-## comm - socket
-ip = "192.168.0.21"
-sock_port = 9001
-
-#sock_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#sock_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-#sock_server.bind((ip, sock_port))
+port = "/dev/ttyACM0"
+ser = serial.Serial(port, 115200)
 
 ## for dist - thread
 command = ''
 cnt_r =0 ; cnt_l=0
 prev_r=-1; prev_l=-1
 
-port = "/dev/ttyACM0"
-ser = serial.Serial(port, 115200)
-
-# get distance 
 LEFT = 7
 RIGHT = 22
 wheel=21.2/100.  # meter
@@ -77,15 +66,25 @@ wheel=21.2/100.  # meter
 FRONT_t = [11,13,16]
 FRONT_e = [12,15,18]
 
+## comm - socket
+ip = "192.168.0.21"
+sock_port = 9001
+
+sock_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+sock_server.bind((ip, sock_port))
 
 def commandThread():
     
+    
+    # direct insert command 
     global command
     global ser
     while True:
         command = sys.stdin.readline()[:-1] # [0]
         ser.write(command.encode())
     '''
+    # insert command from web(socket)
     global sock_server
     op = 'x'
     
@@ -95,7 +94,7 @@ def commandThread():
         command = sock_client.recv(1024)
         if len(command)==0: continue
         command = command[0]
-        if op == command: continue
+        if op == command: continue      # to avoid command redundant
         op = command
         print(command.decode())
         ser.write(command.encode())
@@ -151,6 +150,7 @@ def usThread():
 GPIO.setmode(GPIO.BOARD)
 GPIO.setup(LEFT, GPIO.IN)
 GPIO.setup(RIGHT, GPIO.IN)
+
 '''
 for i in range(3):        
     GPIO.setup(FRONT_t[i], GPIO.OUT)
@@ -193,8 +193,6 @@ distThread.start()
 commThread.start()
 #usThread.start()
 
-###
-
 prev_cnt=0
 total_dist=0
 
@@ -204,14 +202,15 @@ last_time = rospy.Time.now()
 r = rospy.Rate(100)
 while not rospy.is_shutdown():
     current_time = rospy.Time.now()
-    
     dt = (current_time - last_time).to_sec()
     
-    # get distance 
+    # get distance - when forward or backward
     if command=='w' or command=='s':
         avg_cnt = (cnt_r+cnt_l-2)/2.
         delta_dist = (avg_cnt-prev_cnt)/40.*wheel
         prev_cnt=avg_cnt
+        #print((cnt_r-1)/40.*wheel, (cnt_l-1)/40.*wheel)
+        
     else:
         cnt_r=0
         cnt_l=0
@@ -220,22 +219,23 @@ while not rospy.is_shutdown():
         prev_cnt=0
         delta_dist=0
     
+    # get angle
     now_th = getAngle(sensor,BGZ, dt, fil_angle)
     th = (-1)*now_th*math.pi/180
-    
-    #print(th)
     if command =='s':
         th += math.pi
     
-    #print(delta_dist)
+    # for odom msg 
     total_dist+=delta_dist
-    #print(total_dist,cnt_l, cnt_r)
+    #print(total_dist)
     delta_x = delta_dist*math.cos(th)
     delta_y = delta_dist*math.sin(th)
-    
     delta_th = (now_th-prev_th)*math.pi/180
     
-    if dt==0: continue
+    #total_dist+=math.sqrt(delta_x*delta_x+delta_y*delta_y)
+    
+    
+    if dt==0: continue  # to avoid div by zero
     vx=delta_x/dt
     vy=delta_y/dt
     vth = delta_th/dt
@@ -243,6 +243,8 @@ while not rospy.is_shutdown():
     x += delta_x
     y += delta_y
     
+    last_time = current_time
+    prev_th = now_th
     
     # since all odometry is 6DOF we'll need a quaternion created from yaw
     odom_quat = tf.transformations.quaternion_from_euler(0, 0, th)
@@ -255,7 +257,6 @@ while not rospy.is_shutdown():
         "base_link",
         "odom"
     )
-    
     # next, we'll publish the odometry message over ROS
     odom = Odometry()
     odom.header.stamp = current_time
@@ -270,8 +271,5 @@ while not rospy.is_shutdown():
     
     # publish the message
     odom_pub.publish(odom)
-
-    last_time = current_time
-    prev_th = now_th
     
     r.sleep()

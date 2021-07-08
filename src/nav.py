@@ -160,9 +160,8 @@ def distanceThread():
 def usThread():
     global command
     global ser
-    global buz
+    
     obj_dist = 15
-    GPIO.output(buz,False)
     while True:
         for i in range(3):                
             GPIO.output(FRONT_t[i], False)
@@ -178,7 +177,6 @@ def usThread():
             distance = pulse_duration * 17000
             distance = round(distance, 2)
             if distance < obj_dist:
-		GPIO.output(buz,True)
                 command = 'x'
                 ser.write(command.encode())
 		time.sleep(0.001)
@@ -188,7 +186,6 @@ def usThread():
 GPIO.setmode(GPIO.BOARD)
 GPIO.setup(LEFT, GPIO.IN)
 GPIO.setup(RIGHT, GPIO.IN)
-GPIO.setup(buz, GPIO.OUT)
 
 for i in range(3):        
     GPIO.setup(FRONT_t[i], GPIO.OUT)

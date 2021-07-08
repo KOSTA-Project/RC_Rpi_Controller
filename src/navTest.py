@@ -133,17 +133,21 @@ def subscribe_cmd_vel(data):
     # when first arrived 
     if last_time_sub==-1:
 	last_time_sub = rospy.Time.now()
-	
+	'''
 	vx_sub= data.linear.x
 	vy_sub= data.linear.y
 	vth_sub= data.angular.z
-	
+	'''
 	isnav = 0
 	return
     
     current_time_sub = rospy.Time.now()
     dt = (current_time_sub - last_time_sub).to_sec()
     last_time_sub = -1
+    
+    vx_sub= data.linear.x
+    vy_sub= data.linear.y
+    vth_sub= data.angular.z
     
     move(vx_sub,vy_sub,vth_sub,dt)
 
@@ -160,22 +164,29 @@ def move(vx,vy,vth,dt):
 	
 	limit = 1*math.pi/180
 	limit_dist = 1e-3
-	
+	print(rospy.Time.now().to_sec(), dt)
+	# idle
 	delta_th = vth*dt
 	delta_x = vx*dt
 	delta_y = vy*dt
+	dist = math.sqrt(delta_x*delta_x + delta_y*delta_y) #target
 	
+	#print("target {0:}\t{1:}\t{2:}\t{3:}\n".format(delta_x,delta_y, delta_th,dt))
+		
+	# real move
 	dist_now =0
 	t_p = initDt()
+	
 	now_th, t_p = getAngle(sensor,BGZ, t_p, fil_angle)
 	th = (-1)*now_th*math.pi/180
 	
-	# target dist, th
-	dist = math.sqrt(delta_x*delta_x + delta_y*delta_y) #target
 	target = delta_th+th
 	
-	#roatate for target(th)
+	#roatate
 	if vth!=0.0:
+	    
+	    #target %= (2*math.pi)
+	    #print("vth op: {0:}\t{1:}\t{2:}\t{3:}\n".format(delta_th,th,target,dt))
 	    
 	    if target < th: command = 'd'
 	    else: command='a'
@@ -186,6 +197,8 @@ def move(vx,vy,vth,dt):
 		while th-target>limit:
 		    now_th,t_p = getAngle(sensor,BGZ, t_p, fil_angle)
 		    th = (-1)*now_th*math.pi/180
+		    
+		    #print(delta_th,th,target, command) #th --> now, angle(th)
 		    time.sleep(0.005)
 	    else:
 		t_p = initDt()
@@ -193,12 +206,13 @@ def move(vx,vy,vth,dt):
 		while target-th>limit:
 		    now_th,t_p = getAngle(sensor,BGZ, t_p, fil_angle)
 		    th = (-1)*now_th*math.pi/180
+		    #print(delta_th,th,target, command)
 		    time.sleep(0.005)
 	    command = 'x'
 	    ser.write(command.encode())
-		
-	# go straight for target dist
+	# go straight
 	if dist>limit_dist:
+	    #dist += dist_now
 	    command = 'w'
 	    ser.write(command.encode())
 	    while dist_now < dist:
@@ -210,6 +224,8 @@ def move(vx,vy,vth,dt):
 	    ser.write(command.encode())
 	
 	print("message complete: target-{0:}\t{1:}\tcur-{2:}\t{3:}\n".format(dist, target, dist_now, th))
+	
+	#last_time_sub = rospy.Time().now()
 	isnav = 0
 
 def sendOdom():
@@ -236,9 +252,10 @@ def sendOdom():
     last_time = rospy.Time.now()
     prev_th =0
     prev_cnt =0.0
-
+    
+    total_dist=0
     # dt, th, delta_dist
-    r = rospy.Rate(80)
+    r = rospy.Rate(200)
     t_p = initDt()
     while not rospy.is_shutdown() :
 	#print("odom while")
@@ -250,7 +267,13 @@ def sendOdom():
 	
 	th = (-1)*now_th*math.pi/180
 	delta_th = th-prev_th
-
+	#delta_th = th	#-prev_th
+	
+	'''
+	avg_cnt = (cnt_r+cnt_l-2)/2.
+	delta_dist = (avg_cnt-prev_cnt)/40.*wheel
+	prev_cnt=avg_cnt
+	'''
 	# get delta_dist
 	if command=='w' or command=='s':
 	    avg_cnt = (cnt_r+cnt_l-2)/2.
@@ -264,7 +287,8 @@ def sendOdom():
 	    prev_cnt=0
 	    delta_dist=0
 	
-	
+	total_dist+=delta_dist
+	if command=='w': print(total_dist)
 	delta_x = delta_dist*math.cos(th)
 	delta_y = delta_dist*math.sin(th)
 	
